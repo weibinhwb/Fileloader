@@ -26,11 +26,9 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         setContentView(R.layout.activity_main);
         Button downloadButton = (Button) findViewById(R.id.startDownload);
         Button pause = (Button) findViewById(R.id.pauseDownload);
-        Button refresh = (Button) findViewById(R.id.refreshDownload);
         Button cancel = (Button) findViewById(R.id.cancelDownload);
         downloadButton.setOnClickListener(this);
         pause.setOnClickListener(this);
-        refresh.setOnClickListener(this);
         cancel.setOnClickListener(this);
         progressBar = (ProgressBar) findViewById(R.id.progress);
         loader = FileDownLoader.init(this);
@@ -66,11 +64,8 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             case R.id.pauseDownload:
                 loader.pause();
                 break;
-            case R.id.refreshDownload:
-                loader.refresh();
-                break;
             case R.id.cancelDownload:
-                loader.cancle();
+                loader.cancel();
                 break;
         }
     }
@@ -78,6 +73,5 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        loader.pause();
     }
 }

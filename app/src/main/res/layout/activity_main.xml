@@ -17,11 +17,6 @@
         android:layout_height="wrap_content"
         android:text="@string/pause_down"/>
     <Button
-        android:id="@+id/refreshDownload"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/refresh_down"/>
-    <Button
         android:id="@+id/cancelDownload"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
