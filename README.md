@@ -13,3 +13,6 @@ loader.pause();
 //删除
 loader.cancle();
 ~~~
+#### gif演示
+![基本操作](https://github.com/weibinhwb/Fileloader/blob/master/app/src/gif/video2gif_20180608_133105.gif)
+![基本操作](https://github.com/weibinhwb/Fileloader/blob/master/app/src/gif/video2gif_20180608_133210.gif)
