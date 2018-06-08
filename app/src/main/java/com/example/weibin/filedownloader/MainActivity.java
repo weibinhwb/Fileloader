@@ -16,7 +16,7 @@ import com.example.weibin.filedownloader.FileLoader.FileDownLoader;
 
 public class MainActivity extends AppCompatActivity implements View.OnClickListener{
 
-    private final String url = "http://down.sandai.net/ThunderVIP/ThunderVIP-ugw.exe";
+    private final String url1 = "http://gdown.baidu.com/data/wisegame/93524fb7a7dc0528/QQ_864.apk";
     private ProgressBar progressBar;
     FileDownLoader loader = null;
 
@@ -27,11 +27,11 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         Button downloadButton = (Button) findViewById(R.id.startDownload);
         Button pause = (Button) findViewById(R.id.pauseDownload);
         Button cancel = (Button) findViewById(R.id.cancelDownload);
+        progressBar = (ProgressBar) findViewById(R.id.progress);
         downloadButton.setOnClickListener(this);
         pause.setOnClickListener(this);
         cancel.setOnClickListener(this);
-        progressBar = (ProgressBar) findViewById(R.id.progress);
-        loader = FileDownLoader.init(this);
+        loader = new FileDownLoader(this);
     }
 
 
@@ -41,7 +41,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         switch (requestCode){
             case 1:
                 if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED){
-                    loader.setView(progressBar).with(url).use(3).start();
+                    loader.setView(progressBar).with(url1).use(3).start();
                 } else {
                     Toast.makeText(this, "授权失败", Toast.LENGTH_SHORT).show();
                 }
@@ -58,7 +58,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
                     ActivityCompat.requestPermissions(MainActivity.this, new String[]
                             {Manifest.permission.WRITE_EXTERNAL_STORAGE}, 1);
                 } else {
-                    loader.setView(progressBar).with(url).use(3).start();
+                    loader.setView(progressBar).with(url1).use(3).start();
                 }
                 break;
             case R.id.pauseDownload:
@@ -67,8 +67,11 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
             case R.id.cancelDownload:
                 loader.cancel();
                 break;
+                default:
+                    break;
         }
     }
+
 
     @Override
     protected void onDestroy() {

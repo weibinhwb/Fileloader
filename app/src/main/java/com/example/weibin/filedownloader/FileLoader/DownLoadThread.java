@@ -2,7 +2,6 @@ package com.example.weibin.filedownloader.FileLoader;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-import android.util.Log;
 
 import java.io.File;
 import java.io.InputStream;
@@ -10,10 +9,9 @@ import java.io.RandomAccessFile;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
-public class DownLoadThread implements Runnable{
+public class DownLoadThread implements Runnable, UpdateStateListener.DownLoaStateListener{
 
-    public static  boolean IS_DOWNLOAD = true;
-    public static final String SAVE_THREAD_STATE = "save_thread_state";
+    public boolean IS_DOWNLOAD = true;
     private File mFile;
     private String downloadUrl;
     private Context mContext;
@@ -23,6 +21,14 @@ public class DownLoadThread implements Runnable{
     private long threadProgress = 0;
     private UpdateStateListener listener;
 
+    /**
+     * @param mFile 保存的文件
+     * @param downloadUrl 下载的url
+     * @param threadId 当前线程的id,区别线程
+     * @param startPosition 断点续传请求及保存文件的开始位置
+       @param endPosition 断点续传请求及保存文件的结束的位置
+       @param listener 更新下载进度的回调
+     * */
     public DownLoadThread(File mFile, String downloadUrl, int threadId, long startPosition,
                           long endPosition, Context context, UpdateStateListener listener) {
         this.mFile = mFile;
@@ -48,7 +54,8 @@ public class DownLoadThread implements Runnable{
             int code = urlConnection.getResponseCode();
             if (code != 206)
                 return;
-            SharedPreferences.Editor editor = mContext.getSharedPreferences(SAVE_THREAD_STATE, Context.MODE_PRIVATE).edit();
+            String[] strings = mFile.getName().split(File.separator);
+            SharedPreferences.Editor editor = mContext.getSharedPreferences(strings[strings.length - 1], Context.MODE_PRIVATE).edit();
             in = urlConnection.getInputStream();
             byte[] bytes = new byte[10240];
             int len = 0;
@@ -58,16 +65,21 @@ public class DownLoadThread implements Runnable{
                 }
                 ranFile.write(bytes, 0, len);
                 threadProgress += len;
-                Log.d("" + this, threadProgress + "");
-                editor.putLong(SAVE_THREAD_STATE + threadId, threadProgress + startPosition).apply();
+                editor.putLong(mFile.getName() + threadId, threadProgress + startPosition).apply();
                 listener.updateTaskSize(len);
             }
             in.close();
             ranFile.close();
             urlConnection.disconnect();
-            listener.successDownload();
+            listener.is_success();
         } catch (Exception e) {
             e.printStackTrace();
+            listener.onfailure();
         }
+    }
+
+    @Override
+    public void isDownLoading(boolean isDownLoading) {
+        this.IS_DOWNLOAD = isDownLoading;
     }
 }

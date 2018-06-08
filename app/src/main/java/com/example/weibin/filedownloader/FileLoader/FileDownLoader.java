@@ -5,20 +5,18 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Environment;
 import android.support.v7.app.AppCompatActivity;
-import android.util.Log;
 import android.widget.ProgressBar;
 import android.widget.Toast;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.RandomAccessFile;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-
-import static com.example.weibin.filedownloader.FileLoader.DownLoadThread.IS_DOWNLOAD;
-import static com.example.weibin.filedownloader.FileLoader.DownLoadThread.SAVE_THREAD_STATE;
+import static com.example.weibin.filedownloader.FileLoader.UpdateStateListener.*;
 
 public class FileDownLoader{
 
@@ -28,23 +26,18 @@ public class FileDownLoader{
     private int threadNum;
     private long taskProgress;
     private long fileLength;
+    private long freeMemory;
     private ProgressBar progressBar;
-    private static FileDownLoader fileDownLoader;
-    private static final String TAG = "FileDownLoader";
+    private String TEMP_NAME;
+    private List<DownLoaStateListener> mListeners;
     private static final String TASK_PROGRESS = "task_progress";
-    private ExecutorService fixedThreadPool = null;
-    private FileDownLoader(Context context){
-        this.context = context;
-    }
+    private ExecutorService sCachedThreadPool;
+    private boolean startAble = true;
+    private boolean pauseAble = false;
+    private boolean cancelAble = false;
 
-    public static FileDownLoader init(Context context){
-        if (fileDownLoader == null){
-            synchronized (FileDownLoader.class){
-                if (fileDownLoader == null)
-                    fileDownLoader = new FileDownLoader(context);
-            }
-        }
-        return fileDownLoader;
+    public FileDownLoader(Context context){
+        this.context = context;
     }
 
     public FileDownLoader with(String url) {
@@ -52,84 +45,81 @@ public class FileDownLoader{
         String directory =  Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).getPath();
         String filename = url.substring(url.lastIndexOf(File.separator));
         file = new File(directory + filename);
+        String[] strings = filename.split(File.separator);
+        TEMP_NAME = strings[strings.length - 1];
+        freeMemory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).getFreeSpace();
         return this;
     }
 
     public FileDownLoader use(int mThreadNum) {
-        fixedThreadPool = Executors.newFixedThreadPool(mThreadNum);
         this.threadNum = mThreadNum;
+        mListeners = new ArrayList<>();
+        sCachedThreadPool = Executors.newFixedThreadPool(mThreadNum);
         return this;
     }
 
     public void pause(){
-        IS_DOWNLOAD = false;
-        Log.d(TAG , "暂停成功");
-        getActivity().runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                Toast.makeText(context, "暂停下载", Toast.LENGTH_SHORT).show();
-            }
-        });
+        if (!pauseAble)
+            return;
+        pauseAble = false;
+        for (int i = 0; i < threadNum; i ++){
+            mListeners.get(i).isDownLoading(false);
+        }
+        showToast("暂停下载");
+        startAble = true;
+        cancelAble = true;
     }
 
     public void cancel(){
-        this.pause();
+        if (!cancelAble)
+            return;
+        cancelAble = false;
         if (progressBar != null)
             progressBar.setProgress(0);
-        if (file.exists() && file.delete()){
-            SharedPreferences.Editor editor = context.getSharedPreferences(SAVE_THREAD_STATE, Context.MODE_PRIVATE).edit();
-            editor.clear().apply();
-            getActivity().runOnUiThread(new Runnable() {
-                @Override
-                public void run() {
-                    Toast.makeText(context, "删除成功", Toast.LENGTH_SHORT).show();
-                }
-            });
+        for (int i = 0; i < threadNum; i ++){
+            mListeners.get(i).isDownLoading(false);
         }
+        if (file.exists() && file.delete()){
+            deleteStateSave();
+            showToast("删除成功");
+        }
+        pauseAble = false;
+        startAble = true;
     }
-//
-//    public void refresh(){
-//        if (progressBar != null)
-//            progressBar.setProgress((int)taskProgress);
-//        this.start();
-//        getActivity().runOnUiThread(new Runnable() {
-//            @Override
-//            public void run() {
-//                Toast.makeText(context, "恢复下载", Toast.LENGTH_SHORT).show();
-//            }
-//        });
-//    }
 
     public FileDownLoader setView(ProgressBar progressBar){
         this.progressBar = progressBar;
         return this;
     }
 
-    public FileDownLoader start(){
-        IS_DOWNLOAD = true;
-        SharedPreferences preferences = context.getSharedPreferences(SAVE_THREAD_STATE, Context.MODE_PRIVATE);
-        taskProgress = preferences.getLong(TASK_PROGRESS, 0);
+    public void start(){
+        if (!startAble)
+            return;
+        startAble = false;
+        taskProgress = getTaskProgress();
         new Thread(new Runnable() {
             @Override
             public void run() {
                 HttpURLConnection connection = null;
-                RandomAccessFile accessFile = null;
                 try {
                     URL url = new URL(downloadUrl);
                     connection = (HttpURLConnection) url.openConnection();
                     final int code = connection.getResponseCode();
                     if (code != 200){
-                        Log.d(TAG , "连接失败");
+                        showToast("连接失败");
                         return;
                     }
                     fileLength = connection.getContentLength();
-                    long downBlock = fileLength / threadNum;
-                    accessFile = new RandomAccessFile(file, "rw");
-                    accessFile.setLength(fileLength);
                     connection.disconnect();
-                    final SharedPreferences preferences = context.getSharedPreferences(SAVE_THREAD_STATE, Context.MODE_PRIVATE);
+                    //判断手机内存是否足够
+                    if (fileLength > freeMemory){
+                        showToast("内存不足");
+                        return;
+                    }
+                    long downBlock = fileLength / threadNum;
+                    SharedPreferences preferences = context.getSharedPreferences(TEMP_NAME, Context.MODE_PRIVATE);
                     for (int i = 0; i < threadNum; i ++){
-                        long start = preferences.getLong(SAVE_THREAD_STATE + i, i * downBlock);
+                        long start = preferences.getLong(TEMP_NAME + i, i * downBlock);
                         long end = downBlock *  (i + 1) - 1;
                         if (i == threadNum - 1){
                             end = fileLength - 1;
@@ -138,46 +128,68 @@ public class FileDownLoader{
                             @Override
                             public void updateTaskSize(long size) {
                                 synchronized (FileDownLoader.this){
-                                    SharedPreferences.Editor editor = context.getSharedPreferences(SAVE_THREAD_STATE, Context.MODE_PRIVATE).edit();
                                     taskProgress += size;
-                                    editor.putLong(TASK_PROGRESS, taskProgress).apply();
-                                    progressBar.setMax((int) fileLength);
-                                    progressBar.setProgress((int)taskProgress);
-                                    Log.d(this + "updateTask", taskProgress + "||" + fileLength);
+                                    updateTaskProgress();
+                                    updateProgressBar();
                                 }
                             }
                             @Override
-                            public void successDownload() {
+                            public void is_success() {
                                 if (fileLength == taskProgress){
-                                    SharedPreferences.Editor editor = context.getSharedPreferences(SAVE_THREAD_STATE, Context.MODE_PRIVATE).edit();
-                                    editor.clear().apply();
-                                    Log.d(TAG , "下载成功");
-                                    getActivity().runOnUiThread(new Runnable() {
-                                        @Override
-                                        public void run() {
-                                            Toast.makeText(context, "下载成功", Toast.LENGTH_SHORT).show();
-                                        }
-                                    });
+                                    sCachedThreadPool.shutdown();
+                                    deleteStateSave();
+                                    showToast("下载成功");
                                 }
                             }
+                            @Override
+                            public void onfailure() {
+                                showToast("下载失败");
+                            }
                         });
-                        fixedThreadPool.execute(run);
+                        sCachedThreadPool.execute(run);
+                        mListeners.add(run);
                     }
+                    cancelAble = true;
+                    pauseAble = true;
                 } catch (NullPointerException | IOException e){
                     e.printStackTrace();
-                    getActivity().runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            Toast.makeText(context, "下载失败", Toast.LENGTH_SHORT).show();
-                        }
-                    });
+                    showToast("下载失败");
                 }
             }
         }).start();
-        return this;
     }
 
+    private long getTaskProgress(){
+        SharedPreferences preferences = context.getSharedPreferences(TEMP_NAME, Context.MODE_PRIVATE);
+        return preferences.getLong(TASK_PROGRESS, 0);
+    }
+
+    private void updateTaskProgress(){
+        SharedPreferences.Editor editor = context.getSharedPreferences(TEMP_NAME, Context.MODE_PRIVATE).edit();
+        editor.putLong(TASK_PROGRESS, taskProgress).apply();
+    }
+
+    private void updateProgressBar(){
+        if (progressBar != null){
+            progressBar.setMax((int) fileLength);
+            progressBar.setProgress((int)taskProgress);
+        }
+    }
+
+    private void deleteStateSave(){
+        SharedPreferences.Editor editor = context.getSharedPreferences(TEMP_NAME, Context.MODE_PRIVATE).edit();
+        editor.clear().apply();
+    }
     private Activity getActivity(){
         return (AppCompatActivity) context;
+    }
+
+    private void showToast(final String text){
+        getActivity().runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                Toast.makeText(context, text, Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 }
