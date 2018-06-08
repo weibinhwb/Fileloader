@@ -59,32 +59,32 @@ public class FileDownLoader{
     }
 
     public void pause(){
-        if (!pauseAble)
+        if (!isPauseAble())
             return;
-        pauseAble = false;
+        setPauseAble(false);
         for (int i = 0; i < threadNum; i ++){
-            mListeners.get(i).isDownLoading(false);
+            getListeners().get(i).isDownLoading(false);
         }
         showToast("暂停下载");
-        startAble = true;
-        cancelAble = true;
+        setStartAble(true);
+        setCancelAble(true);
     }
 
     public void cancel(){
-        if (!cancelAble)
+        if (!isCancelAble())
             return;
-        cancelAble = false;
+        setCancelAble(false);
         if (progressBar != null)
             progressBar.setProgress(0);
         for (int i = 0; i < threadNum; i ++){
-            mListeners.get(i).isDownLoading(false);
+            getListeners().get(i).isDownLoading(false);
         }
         if (file.exists() && file.delete()){
             deleteStateSave();
             showToast("删除成功");
         }
-        pauseAble = false;
-        startAble = true;
+        setPauseAble(false);
+        setStartAble(true);
     }
 
     public FileDownLoader setView(ProgressBar progressBar){
@@ -93,9 +93,9 @@ public class FileDownLoader{
     }
 
     public void start(){
-        if (!startAble)
+        if (!isStartAble())
             return;
-        startAble = false;
+        setStartAble(false);
         taskProgress = getTaskProgress();
         new Thread(new Runnable() {
             @Override
@@ -109,20 +109,20 @@ public class FileDownLoader{
                         showToast("连接失败");
                         return;
                     }
-                    fileLength = connection.getContentLength();
+                    setFileLength(connection.getContentLength());
                     connection.disconnect();
                     //判断手机内存是否足够
-                    if (fileLength > freeMemory){
+                    if (getFileLength() > freeMemory){
                         showToast("内存不足");
                         return;
                     }
-                    long downBlock = fileLength / threadNum;
+                    long downBlock = getFileLength() / threadNum;
                     SharedPreferences preferences = context.getSharedPreferences(TEMP_NAME, Context.MODE_PRIVATE);
                     for (int i = 0; i < threadNum; i ++){
                         long start = preferences.getLong(TEMP_NAME + i, i * downBlock);
                         long end = downBlock *  (i + 1) - 1;
                         if (i == threadNum - 1){
-                            end = fileLength - 1;
+                            end = getFileLength() - 1;
                         }
                         DownLoadThread run = new DownLoadThread(file, downloadUrl, i, start, end, context, new UpdateStateListener() {
                             @Override
@@ -135,7 +135,7 @@ public class FileDownLoader{
                             }
                             @Override
                             public void is_success() {
-                                if (fileLength == taskProgress){
+                                if (getFileLength() == getTaskProgress()){
                                     sCachedThreadPool.shutdown();
                                     deleteStateSave();
                                     showToast("下载成功");
@@ -147,10 +147,10 @@ public class FileDownLoader{
                             }
                         });
                         sCachedThreadPool.execute(run);
-                        mListeners.add(run);
+                        getListeners().add(run);
                     }
-                    cancelAble = true;
-                    pauseAble = true;
+                    setCancelAble(true);
+                    setPauseAble(true);
                 } catch (NullPointerException | IOException e){
                     e.printStackTrace();
                     showToast("下载失败");
@@ -191,5 +191,45 @@ public class FileDownLoader{
                 Toast.makeText(context, text, Toast.LENGTH_SHORT).show();
             }
         });
+    }
+
+    private synchronized List<DownLoaStateListener> getListeners() {
+        return mListeners;
+    }
+
+    private synchronized void setListeners(List<DownLoaStateListener> listeners) {
+        mListeners = listeners;
+    }
+
+    private synchronized long getFileLength() {
+        return fileLength;
+    }
+
+    private synchronized void setFileLength(long fileLength) {
+        this.fileLength = fileLength;
+    }
+
+    private synchronized boolean isStartAble() {
+        return startAble;
+    }
+
+    private synchronized void setStartAble(boolean startAble) {
+        this.startAble = startAble;
+    }
+
+    private synchronized boolean isPauseAble() {
+        return pauseAble;
+    }
+
+    private synchronized void setPauseAble(boolean pauseAble) {
+        this.pauseAble = pauseAble;
+    }
+
+    private synchronized boolean isCancelAble() {
+        return cancelAble;
+    }
+
+    private synchronized void setCancelAble(boolean cancelAble) {
+        this.cancelAble = cancelAble;
     }
 }
