@@ -5,7 +5,4 @@ public interface UpdateStateListener {
     void is_success();
     void onfailure();
 
-    interface DownLoaStateListener{
-        void isDownLoading(boolean isDownLoading);
-    }
 }

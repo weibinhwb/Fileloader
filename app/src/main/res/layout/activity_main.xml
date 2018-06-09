@@ -27,4 +27,27 @@
         android:layout_height="wrap_content"
         style="?android:attr/progressBarStyleHorizontal"
         />
+
+    <Button
+        android:id="@+id/startDownload1"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/start_down"
+        />
+    <Button
+        android:id="@+id/pauseDownload1"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/pause_down"/>
+    <Button
+        android:id="@+id/cancelDownload1"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/cancel_down"/>
+    <ProgressBar
+        android:id="@+id/progress1"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        style="?android:attr/progressBarStyleHorizontal"
+        />
 </LinearLayout>

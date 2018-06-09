@@ -10,6 +10,8 @@ import android.widget.Toast;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.RandomAccessFile;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
@@ -29,12 +31,11 @@ public class FileDownLoader{
     private long freeMemory;
     private ProgressBar progressBar;
     private String TEMP_NAME;
-    private List<DownLoaStateListener> mListeners;
     private static final String TASK_PROGRESS = "task_progress";
     private ExecutorService sCachedThreadPool;
-    private boolean startAble = true;
-    private boolean pauseAble = false;
-    private boolean cancelAble = false;
+    private volatile boolean startAble = true;
+    private volatile boolean pauseAble = false;
+    private volatile boolean cancelAble = false;
 
     public FileDownLoader(Context context){
         this.context = context;
@@ -53,32 +54,25 @@ public class FileDownLoader{
 
     public FileDownLoader use(int mThreadNum) {
         this.threadNum = mThreadNum;
-        mListeners = new ArrayList<>();
         sCachedThreadPool = Executors.newFixedThreadPool(mThreadNum);
         return this;
     }
 
     public void pause(){
-        if (!isPauseAble())
+        if (!pauseAble)
             return;
         setPauseAble(false);
-        for (int i = 0; i < threadNum; i ++){
-            getListeners().get(i).isDownLoading(false);
-        }
         showToast("暂停下载");
         setStartAble(true);
         setCancelAble(true);
     }
 
     public void cancel(){
-        if (!isCancelAble())
+        if (!cancelAble)
             return;
         setCancelAble(false);
         if (progressBar != null)
             progressBar.setProgress(0);
-        for (int i = 0; i < threadNum; i ++){
-            getListeners().get(i).isDownLoading(false);
-        }
         if (file.exists() && file.delete()){
             deleteStateSave();
             showToast("删除成功");
@@ -147,7 +141,6 @@ public class FileDownLoader{
                             }
                         });
                         sCachedThreadPool.execute(run);
-                        getListeners().add(run);
                     }
                     setCancelAble(true);
                     setPauseAble(true);
@@ -193,14 +186,6 @@ public class FileDownLoader{
         });
     }
 
-    private synchronized List<DownLoaStateListener> getListeners() {
-        return mListeners;
-    }
-
-    private synchronized void setListeners(List<DownLoaStateListener> listeners) {
-        mListeners = listeners;
-    }
-
     private synchronized long getFileLength() {
         return fileLength;
     }
@@ -217,19 +202,81 @@ public class FileDownLoader{
         this.startAble = startAble;
     }
 
-    private synchronized boolean isPauseAble() {
-        return pauseAble;
-    }
-
     private synchronized void setPauseAble(boolean pauseAble) {
         this.pauseAble = pauseAble;
     }
 
-    private synchronized boolean isCancelAble() {
-        return cancelAble;
-    }
-
     private synchronized void setCancelAble(boolean cancelAble) {
         this.cancelAble = cancelAble;
+    }
+
+    class DownLoadThread implements Runnable{
+
+        private File mFile;
+        private String downloadUrl;
+        private Context mContext;
+        private int threadId;
+        private long startPosition;
+        private long endPosition;
+        private long threadProgress = 0;
+        private UpdateStateListener listener;
+
+        /**
+         * @param mFile 保存的文件
+         * @param downloadUrl 下载的url
+         * @param threadId 当前线程的id,区别线程
+         * @param startPosition 断点续传请求及保存文件的开始位置
+           @param endPosition 断点续传请求及保存文件的结束的位置
+           @param listener 更新下载进度的回调
+         * */
+        public DownLoadThread(File mFile, String downloadUrl, int threadId, long startPosition,
+                              long endPosition, Context context, UpdateStateListener listener) {
+            this.mFile = mFile;
+            this.downloadUrl = downloadUrl;
+            this.threadId = threadId;
+            this.startPosition = startPosition;
+            this.endPosition = endPosition;
+            this.mContext = context;
+            this.listener = listener;
+        }
+
+        @Override
+        public void run() {
+            HttpURLConnection urlConnection = null;
+            InputStream in = null;
+            RandomAccessFile ranFile = null;
+            try {
+                ranFile = new RandomAccessFile(mFile, "rw");
+                ranFile.seek(startPosition);
+                URL url = new URL(downloadUrl);
+                urlConnection = (HttpURLConnection) url.openConnection();
+                urlConnection.setRequestProperty("Range", "bytes=" + startPosition + "-" + endPosition);
+                int code = urlConnection.getResponseCode();
+                if (code != 206)
+                    return;
+                String[] strings = mFile.getName().split(File.separator);
+                SharedPreferences.Editor editor = mContext.getSharedPreferences(strings[strings.length - 1], Context.MODE_PRIVATE).edit();
+                in = urlConnection.getInputStream();
+                byte[] bytes = new byte[10240];
+                int len = 0;
+                while ((len = in.read(bytes)) != -1){
+                    if (!cancelAble || !pauseAble ){
+                        break;
+                    }
+                    ranFile.write(bytes, 0, len);
+                    threadProgress += len;
+                    editor.putLong(mFile.getName() + threadId, threadProgress + startPosition).apply();
+                    listener.updateTaskSize(len);
+                }
+                in.close();
+                ranFile.close();
+                urlConnection.disconnect();
+                listener.is_success();
+            } catch (Exception e) {
+                e.printStackTrace();
+                listener.onfailure();
+            }
+        }
+
     }
 }
