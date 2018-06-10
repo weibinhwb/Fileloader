@@ -14,52 +14,45 @@ import java.io.InputStream;
 import java.io.RandomAccessFile;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import static com.example.weibin.filedownloader.FileLoader.UpdateStateListener.*;
 
 public class FileDownLoader{
 
-    private File file;
-    private String downloadUrl;
-    private Context context;
-    private int threadNum;
-    private long taskProgress;
-    private long fileLength;
-    private long freeMemory;
-    private ProgressBar progressBar;
+    private File mFile;
+    private String mDownloadUrl;
+    private Context mContext;
+    private int mThreadNum;
+    private long mTaskProgress;
+    private long mFileLength;
+    private long mFreeMemory;
+    private ProgressBar mProgressBar;
     private String TEMP_NAME;
     private static final String TASK_PROGRESS = "task_progress";
     private ExecutorService sCachedThreadPool;
-    private volatile boolean startAble = true;
-    private volatile boolean pauseAble = false;
-    private volatile boolean cancelAble = false;
+    private volatile boolean mStartAble = true;
+    private volatile boolean mPauseAble = false;
+    private volatile boolean mCancelAble = false;
 
     public FileDownLoader(Context context){
-        this.context = context;
+        this.mContext = context;
     }
 
     public FileDownLoader with(String url) {
-        this.downloadUrl = url;
-        String directory =  Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).getPath();
-        String filename = url.substring(url.lastIndexOf(File.separator));
-        file = new File(directory + filename);
-        String[] strings = filename.split(File.separator);
-        TEMP_NAME = strings[strings.length - 1];
-        freeMemory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).getFreeSpace();
+        this.mDownloadUrl = url;
+        createFile(url);
+        mFreeMemory = getFreeSpace();
         return this;
     }
 
     public FileDownLoader use(int mThreadNum) {
-        this.threadNum = mThreadNum;
+        this.mThreadNum = mThreadNum;
         sCachedThreadPool = Executors.newFixedThreadPool(mThreadNum);
         return this;
     }
 
     public void pause(){
-        if (!pauseAble)
+        if (!mPauseAble)
             return;
         setPauseAble(false);
         showToast("暂停下载");
@@ -68,12 +61,11 @@ public class FileDownLoader{
     }
 
     public void cancel(){
-        if (!cancelAble)
+        if (!mCancelAble)
             return;
         setCancelAble(false);
-        if (progressBar != null)
-            progressBar.setProgress(0);
-        if (file.exists() && file.delete()){
+        updateProgressBar(0, 0);
+        if (mFile.exists() && mFile.delete()){
             deleteStateSave();
             showToast("删除成功");
         }
@@ -82,7 +74,7 @@ public class FileDownLoader{
     }
 
     public FileDownLoader setView(ProgressBar progressBar){
-        this.progressBar = progressBar;
+        this.mProgressBar = progressBar;
         return this;
     }
 
@@ -90,13 +82,13 @@ public class FileDownLoader{
         if (!isStartAble())
             return;
         setStartAble(false);
-        taskProgress = getTaskProgress();
+        mTaskProgress = getTaskProgress();
         new Thread(new Runnable() {
             @Override
             public void run() {
                 HttpURLConnection connection = null;
                 try {
-                    URL url = new URL(downloadUrl);
+                    URL url = new URL(mDownloadUrl);
                     connection = (HttpURLConnection) url.openConnection();
                     final int code = connection.getResponseCode();
                     if (code != 200){
@@ -106,25 +98,25 @@ public class FileDownLoader{
                     setFileLength(connection.getContentLength());
                     connection.disconnect();
                     //判断手机内存是否足够
-                    if (getFileLength() > freeMemory){
+                    if (getFileLength() > mFreeMemory){
                         showToast("内存不足");
                         return;
                     }
-                    long downBlock = getFileLength() / threadNum;
-                    SharedPreferences preferences = context.getSharedPreferences(TEMP_NAME, Context.MODE_PRIVATE);
-                    for (int i = 0; i < threadNum; i ++){
+                    long downBlock = getFileLength() / mThreadNum;
+                    SharedPreferences preferences = mContext.getSharedPreferences(TEMP_NAME, Context.MODE_PRIVATE);
+                    for (int i = 0; i < mThreadNum; i ++){
                         long start = preferences.getLong(TEMP_NAME + i, i * downBlock);
                         long end = downBlock *  (i + 1) - 1;
-                        if (i == threadNum - 1){
+                        if (i == mThreadNum - 1){
                             end = getFileLength() - 1;
                         }
-                        DownLoadThread run = new DownLoadThread(file, downloadUrl, i, start, end, context, new UpdateStateListener() {
+                        DownLoadThread run = new DownLoadThread(mFile, i, start, end, new UpdateStateListener() {
                             @Override
                             public void updateTaskSize(long size) {
                                 synchronized (FileDownLoader.this){
-                                    taskProgress += size;
+                                    mTaskProgress += size;
                                     updateTaskProgress();
-                                    updateProgressBar();
+                                    updateProgressBar((int)mFileLength, (int)mTaskProgress);
                                 }
                             }
                             @Override
@@ -152,69 +144,9 @@ public class FileDownLoader{
         }).start();
     }
 
-    private long getTaskProgress(){
-        SharedPreferences preferences = context.getSharedPreferences(TEMP_NAME, Context.MODE_PRIVATE);
-        return preferences.getLong(TASK_PROGRESS, 0);
-    }
-
-    private void updateTaskProgress(){
-        SharedPreferences.Editor editor = context.getSharedPreferences(TEMP_NAME, Context.MODE_PRIVATE).edit();
-        editor.putLong(TASK_PROGRESS, taskProgress).apply();
-    }
-
-    private void updateProgressBar(){
-        if (progressBar != null){
-            progressBar.setMax((int) fileLength);
-            progressBar.setProgress((int)taskProgress);
-        }
-    }
-
-    private void deleteStateSave(){
-        SharedPreferences.Editor editor = context.getSharedPreferences(TEMP_NAME, Context.MODE_PRIVATE).edit();
-        editor.clear().apply();
-    }
-    private Activity getActivity(){
-        return (AppCompatActivity) context;
-    }
-
-    private void showToast(final String text){
-        getActivity().runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                Toast.makeText(context, text, Toast.LENGTH_SHORT).show();
-            }
-        });
-    }
-
-    private synchronized long getFileLength() {
-        return fileLength;
-    }
-
-    private synchronized void setFileLength(long fileLength) {
-        this.fileLength = fileLength;
-    }
-
-    private synchronized boolean isStartAble() {
-        return startAble;
-    }
-
-    private synchronized void setStartAble(boolean startAble) {
-        this.startAble = startAble;
-    }
-
-    private synchronized void setPauseAble(boolean pauseAble) {
-        this.pauseAble = pauseAble;
-    }
-
-    private synchronized void setCancelAble(boolean cancelAble) {
-        this.cancelAble = cancelAble;
-    }
-
     class DownLoadThread implements Runnable{
 
-        private File mFile;
-        private String downloadUrl;
-        private Context mContext;
+        private File file;
         private int threadId;
         private long startPosition;
         private long endPosition;
@@ -223,20 +155,17 @@ public class FileDownLoader{
 
         /**
          * @param mFile 保存的文件
-         * @param downloadUrl 下载的url
          * @param threadId 当前线程的id,区别线程
          * @param startPosition 断点续传请求及保存文件的开始位置
            @param endPosition 断点续传请求及保存文件的结束的位置
            @param listener 更新下载进度的回调
          * */
-        public DownLoadThread(File mFile, String downloadUrl, int threadId, long startPosition,
-                              long endPosition, Context context, UpdateStateListener listener) {
-            this.mFile = mFile;
-            this.downloadUrl = downloadUrl;
+        public DownLoadThread(File mFile, int threadId, long startPosition,
+                              long endPosition, UpdateStateListener listener) {
+            this.file = mFile;
             this.threadId = threadId;
             this.startPosition = startPosition;
             this.endPosition = endPosition;
-            this.mContext = context;
             this.listener = listener;
         }
 
@@ -246,26 +175,26 @@ public class FileDownLoader{
             InputStream in = null;
             RandomAccessFile ranFile = null;
             try {
-                ranFile = new RandomAccessFile(mFile, "rw");
+                ranFile = new RandomAccessFile(file, "rw");
                 ranFile.seek(startPosition);
-                URL url = new URL(downloadUrl);
+                URL url = new URL(mDownloadUrl);
                 urlConnection = (HttpURLConnection) url.openConnection();
                 urlConnection.setRequestProperty("Range", "bytes=" + startPosition + "-" + endPosition);
                 int code = urlConnection.getResponseCode();
                 if (code != 206)
                     return;
-                String[] strings = mFile.getName().split(File.separator);
+                String[] strings = file.getName().split(File.separator);
                 SharedPreferences.Editor editor = mContext.getSharedPreferences(strings[strings.length - 1], Context.MODE_PRIVATE).edit();
                 in = urlConnection.getInputStream();
                 byte[] bytes = new byte[10240];
                 int len = 0;
                 while ((len = in.read(bytes)) != -1){
-                    if (!cancelAble || !pauseAble ){
+                    if (!mCancelAble || !mPauseAble){
                         break;
                     }
                     ranFile.write(bytes, 0, len);
                     threadProgress += len;
-                    editor.putLong(mFile.getName() + threadId, threadProgress + startPosition).apply();
+                    editor.putLong(file.getName() + threadId, threadProgress + startPosition).apply();
                     listener.updateTaskSize(len);
                 }
                 in.close();
@@ -277,6 +206,76 @@ public class FileDownLoader{
                 listener.onfailure();
             }
         }
+    }
 
+
+    private void createFile(String url){
+        String directory =  Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).getPath();
+        String filename = url.substring(url.lastIndexOf(File.separator));
+        mFile = new File(directory + filename);
+        String[] strings = filename.split(File.separator);
+        TEMP_NAME = strings[strings.length - 1];
+    }
+
+    private long getFreeSpace(){
+        return Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).getFreeSpace();
+    }
+
+    private long getTaskProgress(){
+        SharedPreferences preferences = mContext.getSharedPreferences(TEMP_NAME, Context.MODE_PRIVATE);
+        return preferences.getLong(TASK_PROGRESS, 0);
+    }
+
+    private void updateTaskProgress(){
+        SharedPreferences.Editor editor = mContext.getSharedPreferences(TEMP_NAME, Context.MODE_PRIVATE).edit();
+        editor.putLong(TASK_PROGRESS, mTaskProgress).apply();
+    }
+
+    private void updateProgressBar(int max, int progress){
+        if (mProgressBar != null){
+            mProgressBar.setMax(max);
+            mProgressBar.setProgress(progress);
+        }
+    }
+
+    private void deleteStateSave(){
+        SharedPreferences.Editor editor = mContext.getSharedPreferences(TEMP_NAME, Context.MODE_PRIVATE).edit();
+        editor.clear().apply();
+    }
+    private Activity getActivity(){
+        return (AppCompatActivity) mContext;
+    }
+
+    private void showToast(final String text){
+        getActivity().runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                Toast.makeText(mContext, text, Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    private synchronized long getFileLength() {
+        return mFileLength;
+    }
+
+    private synchronized void setFileLength(long fileLength) {
+        this.mFileLength = fileLength;
+    }
+
+    private synchronized boolean isStartAble() {
+        return mStartAble;
+    }
+
+    private synchronized void setStartAble(boolean startAble) {
+        this.mStartAble = startAble;
+    }
+
+    private synchronized void setPauseAble(boolean pauseAble) {
+        this.mPauseAble = pauseAble;
+    }
+
+    private synchronized void setCancelAble(boolean cancelAble) {
+        this.mCancelAble = cancelAble;
     }
 }

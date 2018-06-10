@@ -4,5 +4,4 @@ public interface UpdateStateListener {
     void updateTaskSize(long size);
     void is_success();
     void onfailure();
-
 }
